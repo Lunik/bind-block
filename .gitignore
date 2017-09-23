@@ -1,0 +1,8 @@
+.DS_Store
+zones/
+
+named.conf
+
+query.log
+
+*.pyc

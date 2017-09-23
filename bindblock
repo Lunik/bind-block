@@ -1,0 +1,136 @@
+#! /usr/bin/python
+
+import os
+import re
+from optparse import OptionParser
+
+from modules import Scraper, Parser, Blockinfile, Prompter, Generator
+
+parser = OptionParser()
+parser.add_option("-p", "--logpath", dest="logpath", help="Path of the bind query logs", default="/var/log/named/query.log")
+parser.add_option("-b", "--bindpath", dest="bindpath", help="Path of the bind confing folder", default="/etc/bind/")
+parser.add_option("--all", dest="all", help="Block all domain", action="store_true")
+parser.add_option("-z", "--zonespath", dest="zonespath", help="Path of the blacklist zone", default="/etc/bind/zones/blacklist")
+parser.add_option("-4", "--ip4", dest="ipv4", help="IPv4 that is going to replace all dns entries", default="127.0.0.1")
+parser.add_option("-6", "--ip6", dest="ipv6", help="IPv6 that is going to replace all dns entries", default="::1")
+
+(options, args) = parser.parse_args()
+
+# Check file exists
+for file in [
+		options.logpath, 
+		options.bindpath,
+		os.path.join(options.bindpath, 'named.conf'),
+		os.path.join(options.zonespath, 'blacklist.zones'),
+		os.path.join(options.zonespath, 'blockeddomains.db'),
+		os.path.join(options.zonespath, 'whitelist')
+	]:
+	file = os.path.abspath(file)
+	if not ((os.path.isfile(file) or os.path.isdir(file))):
+		print(file + ": No such file")
+		exit(1)
+
+# All required files
+files = {
+	'logpath': os.path.abspath(options.logpath),
+	'bindpath': os.path.abspath(options.bindpath),
+	'named.conf': os.path.abspath(os.path.join(options.bindpath, 'named.conf')),
+	'blacklist.zones': os.path.abspath(os.path.join(options.zonespath, 'blacklist.zones')),
+	'blockeddomains.db': os.path.abspath(os.path.join(options.zonespath, 'blockeddomains.db')),
+	'whitelist': os.path.abspath(os.path.join(options.zonespath, 'whitelist'))
+}
+
+# Scrape and parse domain files
+scraper = Scraper()
+parser = Parser()
+
+print("[Parsing] {}".format(files['logpath']))
+logFile = scraper.scrape(files['logpath'])
+foundDomains = parser.parse(logFile)
+
+print("[Parsing] {}".format(files['blacklist.zones']))
+blacklistFile = scraper.scrape(files['blacklist.zones'])
+blockedDomains = parser.parse(blacklistFile)
+
+print("[Parsing] {}".format(files['whitelist']))
+whitelistFile = scraper.scrape(files['whitelist'])
+allowedDomains = parser.parse(whitelistFile)
+
+
+ignoredDomain = []
+newDomains = []
+# Filter already blocked are white listed domains
+for domain in foundDomains:
+	if domain not in blockedDomains and domain not in allowedDomains:
+		print('[Found] {}'.format(domain))
+		newDomains.append(domain)
+
+print("[Info] Found {} new domains.".format(str(len(newDomains))))
+print("Choose to block (b), allow (a), ignore (i) each domains.")
+# Ask user if he want to block , allow, ignore each domain
+prompter = Prompter()
+for domain in newDomains:
+	if options.all :
+		response = 'b'
+	else :
+		response = prompter.ask("- \"{}\" ? (b/a/i) : ".format(domain))
+	
+	if re.search('a.*', response) is not None:
+		print('[Allow] {}'.format(domain))
+		allowedDomains.append(domain)
+	elif re.search('i.*', response) is not None:
+		print('[Ignore] {}'.format(domain))
+		ignoredDomain.append(domain)
+	else :
+		#re.search('b.*', response) is not None:
+		print('[Block] {}'.format(domain))
+		blockedDomains.append(domain)
+
+print("""
+##################
+#     Resume     #
+##################
+""")
+for domain in blockedDomains:
+	if domain in newDomains:
+		print('[Block] {}'.format(domain))
+for domain in allowedDomains:
+	if domain in newDomains:
+		print('[Allow] {}'.format(domain))
+for domain in ignoredDomain:
+	if domain in newDomains:
+		print('[Ignore] {}'.format(domain))
+
+# Continue ?
+if re.search('n.*', prompter.ask("Is it ok ? (y/n) : ")) : 
+	exit(0)
+
+blockinfile = Blockinfile()
+
+print("[Write] {}".format(files['named.conf']))
+blockinfile.write(
+	files['named.conf'], 
+	"include \"{}\";".format(files['blacklist.zones']),{
+	'mark': "# {mark} MANAGED BLOCK blacklist"
+})
+
+print("[Write] {}".format(files['blockeddomains.db']))
+blockinfile.write(
+	files['blockeddomains.db'],
+	Generator.dnsDB(options.ipv4, options.ipv6), {
+	'mark': "; {mark} MANAGED BLOCK database"
+})
+
+print("[Write] {}".format(files['blacklist.zones']))
+blockinfile.write(
+	files['blacklist.zones'], 
+	Generator.blacklistZone(blockedDomains, files['blockeddomains.db']), {
+	'mark': "# {mark} MANAGED BLOCK blacklist"
+})
+
+print("[Write] {}".format(files['whitelist']))
+blockinfile.write(
+	files['whitelist'], 
+	"\\n".join(allowedDomains), {
+	'mark': "# {mark} MANAGED BLOCK whitelist"
+})
