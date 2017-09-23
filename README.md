@@ -18,4 +18,4 @@ Options:
                         Path of the blacklist zone
   -4 IPV4, --ip4=IPV4   IPv4 that is going to replace all dns entries
   -6 IPV6, --ip6=IPV6   IPv6 that is going to replace all dns entries
-``
+```
