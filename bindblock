@@ -81,10 +81,17 @@ for domain in newDomains:
 	elif re.search('i.*', response) is not None:
 		print('[Ignore] {}'.format(domain))
 		ignoredDomain.append(domain)
-	else :
-		#re.search('b.*', response) is not None:
+	elif re.search('b.*', response) is not None:
 		print('[Block] {}'.format(domain))
 		blockedDomains.append(domain)
+	else :
+		response = prompter.ask("stop ? it will ignore all other domains (y/n) : ")
+		if re.search('y.*', response) is not None:
+			break
+		else :
+			# re.search('n.*', response) is not None:
+			# TODO return to the begining of the loop and re-add the current domain
+			continue
 
 print("""
 ##################
