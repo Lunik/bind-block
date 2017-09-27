@@ -138,6 +138,6 @@ blockinfile.write(
 print("[Write] {}".format(files['whitelist']))
 blockinfile.write(
 	files['whitelist'], 
-	"\\n".join(allowedDomains), {
+	"\n".join(allowedDomains), {
 	'mark': "# {mark} MANAGED BLOCK whitelist"
 })
